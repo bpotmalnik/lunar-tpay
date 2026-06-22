@@ -13,9 +13,14 @@ class FakeTpayClient implements TpayClientContract
 
     public string $transactionPaymentUrl = 'https://secure.tpay.com/fake-redirect';
 
+    /** @var array<string, mixed> */
+    public array $lastTransactionPayload = [];
+
     /** @param array<string, mixed> $payload */
     public function createTransaction(array $payload): array
     {
+        $this->lastTransactionPayload = $payload;
+
         return [
             'transactionId' => $this->transactionId,
             'transactionPaymentUrl' => $this->transactionPaymentUrl,

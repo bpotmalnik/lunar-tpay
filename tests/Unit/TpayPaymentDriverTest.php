@@ -36,6 +36,7 @@ it('authorizes an order by creating a tpay transaction', function () {
         ->and($result->redirectUrl)->toBe($fake->transactionPaymentUrl);
 
     expect(TpayPayment::where('tpay_transaction_id', $fake->transactionId)->exists())->toBeTrue();
+    expect($fake->lastTransactionPayload)->not->toHaveKey('pay');
 });
 
 it('returns an existing non-terminal redirect url for the order', function () {

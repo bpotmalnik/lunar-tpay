@@ -37,7 +37,11 @@ return [
 
     'lang' => env('TPAY_LANG', 'pl'),
 
-    'method' => env('TPAY_METHOD', 'pay_by_link'),
+    'method' => env('TPAY_METHOD'),
+
+    'group_id' => env('TPAY_GROUP_ID') !== null ? (int) env('TPAY_GROUP_ID') : null,
+
+    'channel_id' => env('TPAY_CHANNEL_ID') !== null ? (int) env('TPAY_CHANNEL_ID') : null,
 
     'notification_email' => env('TPAY_NOTIFICATION_EMAIL'),
 

@@ -6,7 +6,6 @@ use Bpotmalnik\LunarTpay\Actions\HandleTpayPayment;
 use Bpotmalnik\LunarTpay\Contracts\TpayClientContract;
 use Bpotmalnik\LunarTpay\Enums\PaymentStatus;
 use Bpotmalnik\LunarTpay\Models\TpayPayment;
-use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Routing\Controller;
@@ -15,7 +14,7 @@ use Illuminate\Support\Facades\Log;
 
 class TpayNotificationController extends Controller
 {
-    public function __invoke(Request $request, TpayClientContract $client): Response|JsonResponse
+    public function __invoke(Request $request, TpayClientContract $client): Response
     {
         $rawBody = $request->getContent();
         $signature = $request->header('X-JWS-Signature', '');
@@ -69,8 +68,8 @@ class TpayNotificationController extends Controller
         return $this->accepted();
     }
 
-    private function accepted(): JsonResponse
+    private function accepted(): Response
     {
-        return response()->json(['result' => true]);
+        return response('TRUE');
     }
 }

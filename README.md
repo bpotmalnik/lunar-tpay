@@ -44,7 +44,6 @@ TPAY_SANDBOX=true
 TPAY_NOTIFICATION_PATH=tpay/notification
 TPAY_PAYMENT_DESCRIPTION="Order payment"
 TPAY_LANG=pl
-TPAY_METHOD=pay_by_link
 TPAY_NOTIFICATION_EMAIL=
 
 TPAY_STATUS_CORRECT=payment-received
@@ -89,8 +88,8 @@ Supported `withData()` keys:
 | `notification_url` | Override the webhook URL sent to Tpay. |
 | `description` | Transaction description. |
 | `lang` | Payment page language. Defaults to `TPAY_LANG`. |
-| `method` | Tpay payment method. Defaults to `pay_by_link`. |
-| `group_id` | Optional Tpay bank group ID. |
+| `method` | Optional Tpay payment method. Leave unset for the default Tpay payment page. |
+| `group_id` | Optional Tpay payment group ID, e.g. `150` for BLIK or `103` for card. |
 | `channel_id` | Optional Tpay channel ID. |
 
 ## Notifications
@@ -106,10 +105,10 @@ Tpay sends successful payment notifications with `data.transactionStatus` set to
 - updates the Lunar order status using `lunar.tpay.status_mapping`,
 - dispatches `PaymentConfirmed`.
 
-The controller responds with:
+The controller responds to accepted signed notifications with the literal body expected by Tpay:
 
-```json
-{"result": true}
+```text
+TRUE
 ```
 
 ## Refunds

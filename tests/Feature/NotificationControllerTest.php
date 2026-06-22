@@ -46,7 +46,7 @@ it('acknowledges malformed payloads without dispatching events', function () {
 
     $this->postJson(route('tpay.notification'), ['data' => []], [
         'X-JWS-Signature' => 'valid',
-    ])->assertOk()->assertJson(['result' => true]);
+    ])->assertOk()->assertSee('TRUE');
 
     Event::assertNothingDispatched();
 });
@@ -88,7 +88,7 @@ it('confirms a payment from a correct notification', function () {
     $this->call('POST', route('tpay.notification'), [], [], [], [
         'HTTP_X_JWS_SIGNATURE' => 'valid',
         'CONTENT_TYPE' => 'application/json',
-    ], $body)->assertOk()->assertJson(['result' => true]);
+    ], $body)->assertOk()->assertSee('TRUE');
 
     expect($order->fresh()->placed_at)->not->toBeNull();
 

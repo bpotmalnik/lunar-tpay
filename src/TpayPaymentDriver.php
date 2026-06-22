@@ -249,9 +249,9 @@ class TpayPaymentDriver extends AbstractPayment
                     'taxId' => $order->billingAddress?->tax_identifier,
                 ]),
                 'pay' => array_filter([
-                    'method' => $this->data['method'] ?? config('lunar.tpay.method', 'pay_by_link'),
-                    'groupId' => $this->data['group_id'] ?? null,
-                    'channelId' => $this->data['channel_id'] ?? null,
+                    'method' => $this->data['method'] ?? config('lunar.tpay.method'),
+                    'groupId' => $this->data['group_id'] ?? config('lunar.tpay.group_id'),
+                    'channelId' => $this->data['channel_id'] ?? config('lunar.tpay.channel_id'),
                 ]),
                 'callbacks' => [
                     'payerUrls' => array_filter([
