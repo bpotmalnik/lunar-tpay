@@ -91,6 +91,15 @@ Supported `withData()` keys:
 | `method` | Optional Tpay payment method. Leave unset for the default Tpay payment page. |
 | `group_id` | Optional Tpay payment group ID, e.g. `150` for BLIK or `103` for card. |
 | `channel_id` | Optional Tpay channel ID. |
+| `blik_token` | 6-digit BLIK code for Level 0 (on-site) payments. On success `redirectUrl` is `continue_url` (stay in the shop). Invalid codes fail without redirecting to Tpay; send a new `blik_token` to retry. |
+| `payer_ip` | Payer IP. Required by Tpay for BLIK Level 0. |
+| `payer_user_agent` | Payer user agent. Required by Tpay for BLIK Level 0. |
+
+An order's pending transaction is reused only for the same payment group. Choosing a different group cancels it in Tpay and creates a new one; if Tpay refuses the cancellation, authorization fails instead of opening a second payment. BLIK retries use `POST /transactions/{id}/pay` until Tpay's limit of 4 attempts per transaction, after which the transaction is replaced.
+
+### BLIK Level 0
+
+Tpay accepts a BLIK code with HTTP 200 even when it rejects it, so the driver checks `result` and `payments.errors` and returns a failed `PaymentAuthorize` for a rejected code. After a successful authorization the customer still has to confirm in their banking app. While waiting, poll `TpayClientContract::getTransaction()` and pass the response to `TpayPayment::failedBlikAttempt()`; it returns a `BlikPaymentError` (wrong code, rejected by payer, timeout, …) once Tpay records the shop's attempt as failed, or `null` while it is pending or succeeded.
 
 ## Notifications
 

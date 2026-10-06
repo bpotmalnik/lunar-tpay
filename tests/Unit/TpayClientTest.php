@@ -75,6 +75,27 @@ it('creates a transaction refund using decimal amount', function () {
         && $request['amount'] === 12.34);
 });
 
+it('pays an existing transaction', function () {
+    Http::fake([
+        'openapi.sandbox.tpay.com/oauth/auth' => Http::response(['access_token' => 'token-123']),
+        'openapi.sandbox.tpay.com/transactions/01J9/pay' => Http::response([
+            'result' => 'success',
+            'status' => 'pending',
+            'transactionId' => '01J9',
+        ]),
+    ]);
+
+    $result = app(TpayClient::class)->payTransaction('01J9', [
+        'groupId' => 150,
+        'blikPaymentData' => ['blikToken' => '123456'],
+    ]);
+
+    expect($result['result'])->toBe('success');
+
+    Http::assertSent(fn ($request) => $request->url() === 'https://openapi.sandbox.tpay.com/transactions/01J9/pay'
+        && $request['blikPaymentData']['blikToken'] === '123456');
+});
+
 it('throws a typed api exception for tpay errors', function () {
     Http::fake([
         'openapi.sandbox.tpay.com/oauth/auth' => Http::response([

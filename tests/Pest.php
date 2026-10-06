@@ -13,6 +13,7 @@ use Lunar\Models\CartLine;
 use Lunar\Models\Currency;
 use Lunar\Models\Language;
 use Lunar\Models\Order;
+use Lunar\Models\OrderAddress;
 use Lunar\Models\ProductVariant;
 use Lunar\Models\TaxClass;
 use Lunar\Models\Transaction;
@@ -69,7 +70,7 @@ function buildCart(array $overrides = []): Cart
     return $cart->calculate();
 }
 
-function makeTpayPaymentWithOrder(string $transactionId = '01J9XH0PDXH1Q8C9MMEB3VJ0G6', string $statusValue = 'pending'): array
+function makeTpayPaymentWithOrder(string $transactionId = '01J9XH0PDXH1Q8C9MMEB3VJ0G6', string $statusValue = 'pending', ?int $groupId = null): array
 {
     Language::factory()->create(['default' => true]);
     Currency::factory()->create(['default' => true]);
@@ -90,7 +91,7 @@ function makeTpayPaymentWithOrder(string $transactionId = '01J9XH0PDXH1Q8C9MMEB3
         'reference' => $transactionId,
         'status' => $statusValue,
         'card_type' => 'tpay',
-        'meta' => ['tpay_transaction_id' => $transactionId],
+        'meta' => array_filter(['tpay_transaction_id' => $transactionId, 'group_id' => $groupId]),
     ]);
 
     $tpayPayment = TpayPayment::create([
@@ -122,4 +123,22 @@ function notificationBody(string $transactionId, string $status = 'correct', ?st
             'transactionDescription' => 'Test transaction',
         ],
     ]);
+}
+
+function makeUnpaidOrderWithBillingAddress(): Order
+{
+    ['order' => $order] = makeTpayPaymentWithOrder(statusValue: 'canceled');
+    $order->update(['placed_at' => null, 'currency_code' => 'PLN']);
+    $order->transactions()->delete();
+    TpayPayment::query()->delete();
+
+    OrderAddress::factory()->create([
+        'order_id' => $order->id,
+        'type' => 'billing',
+        'first_name' => 'Anna',
+        'last_name' => 'Kowalska',
+        'contact_email' => 'anna@example.com',
+    ]);
+
+    return $order;
 }

@@ -32,4 +32,13 @@ return [
         'generic' => 'Płatność nie powiodła się. Spróbuj ponownie lub wybierz inną metodę płatności.',
     ],
 
+    'blik' => [
+        'wrong_code' => 'Nieprawidłowy lub wygasły kod BLIK. Wygeneruj nowy kod w aplikacji bankowej i spróbuj ponownie.',
+        'rejected_by_payer' => 'Płatność BLIK została odrzucona w aplikacji bankowej. Wygeneruj nowy kod, aby spróbować ponownie.',
+        'insufficient_funds' => 'Bank odrzucił płatność BLIK z powodu braku środków.',
+        'timeout' => 'Płatność BLIK nie została potwierdzona na czas. Wygeneruj nowy kod i spróbuj ponownie.',
+        'limit_exceeded' => 'Przekroczono limit płatności BLIK ustawiony w banku.',
+        'generic' => 'Płatność BLIK nie powiodła się. Spróbuj ponownie lub wybierz inną metodę płatności.',
+    ],
+
 ];

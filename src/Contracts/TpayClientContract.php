@@ -14,6 +14,15 @@ interface TpayClientContract
      */
     public function createTransaction(array $payload): array;
 
+    /**
+     * @param  array<string, mixed>  $payload
+     * @return array<string, mixed>
+     */
+    public function payTransaction(string $transactionId, array $payload): array;
+
+    /** @return array<string, mixed> */
+    public function cancelTransaction(string $transactionId): array;
+
     /** @return array<string, mixed> */
     public function getTransaction(string $transactionId): array;
 

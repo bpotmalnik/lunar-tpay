@@ -3,6 +3,8 @@
 namespace Bpotmalnik\LunarTpay;
 
 use Bpotmalnik\LunarTpay\Contracts\TpayClientContract;
+use Bpotmalnik\LunarTpay\Enums\ApiErrorType;
+use Bpotmalnik\LunarTpay\Enums\BlikPaymentError;
 use Bpotmalnik\LunarTpay\Enums\PaymentStatus;
 use Bpotmalnik\LunarTpay\Enums\RefundReason;
 use Bpotmalnik\LunarTpay\Enums\RefundStatus;
@@ -10,6 +12,8 @@ use Bpotmalnik\LunarTpay\Exceptions\TpayApiException;
 use Bpotmalnik\LunarTpay\Models\TpayPayment;
 use Bpotmalnik\LunarTpay\Models\TpayRefund;
 use Bpotmalnik\LunarTpay\Responses\PaymentAuthorize;
+use Illuminate\Http\Client\ConnectionException;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Lunar\Base\DataTransferObjects\PaymentCapture;
@@ -23,6 +27,10 @@ use Lunar\PaymentTypes\AbstractPayment;
 
 class TpayPaymentDriver extends AbstractPayment
 {
+    public const BLIK_GROUP_ID = 150;
+
+    public const BLIK_MAX_ATTEMPTS = 4;
+
     protected ?TpayPayment $recoveryPayment = null;
 
     public function __construct(private readonly TpayClientContract $client) {}
@@ -76,16 +84,26 @@ class TpayPaymentDriver extends AbstractPayment
             ->latest()
             ->first();
 
-        if ($existing?->redirect_url) {
-            $response = new PaymentAuthorize(
-                success: true,
-                orderId: $order->id,
-                paymentType: 'tpay',
-                redirectUrl: $existing->redirect_url,
-            );
-            PaymentAttemptEvent::dispatch($response);
+        if ($existing && $existing->groupId() === $this->requestedGroupId()) {
+            if (! $this->blikToken() && $existing->redirect_url) {
+                return $this->succeeded($order->id, $existing->redirect_url);
+            }
 
-            return $response;
+            if ($this->blikToken()) {
+                try {
+                    $attemptsUsed = $this->blikAttemptsUsed($existing);
+                } catch (TpayApiException|ConnectionException $e) {
+                    return $this->failedAuthorize($e);
+                }
+
+                if ($attemptsUsed < self::BLIK_MAX_ATTEMPTS) {
+                    return $this->payExistingBlik($existing, $attemptsUsed);
+                }
+            }
+        }
+
+        if ($existing && ! $this->cancelPayment($existing)) {
+            return $this->failed(trans('lunar-tpay::errors.customer.generic'));
         }
 
         return $this->callTpay((string) Str::uuid(), null);
@@ -247,12 +265,10 @@ class TpayPaymentDriver extends AbstractPayment
                     'country' => $order->billingAddress?->country?->iso2,
                     // @phpstan-ignore-next-line
                     'taxId' => $order->billingAddress?->tax_identifier,
+                    'ip' => $this->data['payer_ip'] ?? null,
+                    'userAgent' => $this->data['payer_user_agent'] ?? null,
                 ]),
-                'pay' => array_filter([
-                    'method' => $this->data['method'] ?? config('lunar.tpay.method'),
-                    'groupId' => $this->data['group_id'] ?? config('lunar.tpay.group_id'),
-                    'channelId' => $this->data['channel_id'] ?? config('lunar.tpay.channel_id'),
-                ]),
+                'pay' => $this->payPayload(),
                 'callbacks' => [
                     'payerUrls' => array_filter([
                         'success' => $this->data['continue_url'] ?? null,
@@ -278,10 +294,13 @@ class TpayPaymentDriver extends AbstractPayment
                 'reference' => $transactionId,
                 'status' => $apiResponse['status'],
                 'card_type' => 'tpay',
-                'meta' => ['tpay_transaction_id' => $transactionId],
+                'meta' => array_filter([
+                    'tpay_transaction_id' => $transactionId,
+                    'group_id' => $this->requestedGroupId(),
+                ]),
             ]);
 
-            TpayPayment::create([
+            $tpayPayment = TpayPayment::create([
                 'order_id' => $order->id,
                 'transaction_id' => $transaction->id,
                 'tpay_transaction_id' => $transactionId,
@@ -294,27 +313,195 @@ class TpayPaymentDriver extends AbstractPayment
                 'parent_payment_id' => $parentPaymentId,
             ]);
         } catch (TpayApiException $e) {
-            $response = new PaymentAuthorize(
-                success: false,
-                message: $e->errorType?->customerMessage()
-                    ?? trans('lunar-tpay::errors.customer.generic'),
-                errorType: $e->errorType,
-            );
-            PaymentAttemptEvent::dispatch($response);
-
-            return $response;
+            return $this->failedAuthorize($e);
         }
 
+        if ($this->blikToken()) {
+            return $this->payExistingBlik($tpayPayment, attemptIndex: 0);
+        }
+
+        return $this->succeeded($order->id, $apiResponse['transactionPaymentUrl']);
+    }
+
+    private function payExistingBlik(TpayPayment $existing, int $attemptIndex): PaymentAuthorize
+    {
+        try {
+            $apiResponse = $this->client->payTransaction($existing->tpay_transaction_id, [
+                'groupId' => self::BLIK_GROUP_ID,
+                'method' => 'transfer',
+                'blikPaymentData' => ['blikToken' => $this->blikToken(), 'type' => 0],
+            ]);
+        } catch (TpayApiException|ConnectionException $e) {
+            return $this->failedAuthorize($e);
+        }
+
+        if ($this->blikWasRejected($apiResponse)) {
+            return $this->failed($this->blikRejectionMessage($apiResponse));
+        }
+
+        if ($transaction = $existing->transaction) {
+            $transaction->update([
+                'meta' => collect($transaction->meta)->put('blik_attempt', $attemptIndex)->all(),
+            ]);
+        }
+
+        return $this->succeeded($existing->order_id, $this->data['continue_url'] ?? $existing->redirect_url);
+    }
+
+    private function blikAttemptsUsed(TpayPayment $payment): int
+    {
+        $transaction = $this->client->getTransaction($payment->tpay_transaction_id);
+
+        return count($transaction['payments']['attempts'] ?? []);
+    }
+
+    private function cancelPayment(TpayPayment $payment): bool
+    {
+        if ($payment->status !== PaymentStatus::Pending) {
+            return false;
+        }
+
+        try {
+            $this->client->cancelTransaction($payment->tpay_transaction_id);
+        } catch (TpayApiException|ConnectionException $e) {
+            Log::warning('Tpay: could not cancel transaction before replacing it', [
+                'order' => $payment->order_id,
+                'transaction' => $payment->tpay_transaction_id,
+                'error' => $e->getMessage(),
+            ]);
+
+            return false;
+        }
+
+        return DB::transaction(function () use ($payment): bool {
+            $current = TpayPayment::lockForUpdate()->find($payment->getKey());
+
+            if (! $current || $current->status !== PaymentStatus::Pending) {
+                return false;
+            }
+
+            $current->update(['status' => PaymentStatus::Canceled]);
+            $current->transaction?->update(['status' => PaymentStatus::Canceled->value]);
+
+            return true;
+        });
+    }
+
+    /** @param array<string, mixed> $apiResponse */
+    private function blikWasRejected(array $apiResponse): bool
+    {
+        return ($apiResponse['result'] ?? null) === 'failed'
+            || ! empty($apiResponse['payments']['errors']);
+    }
+
+    /** @param array<string, mixed> $apiResponse */
+    private function blikRejectionMessage(array $apiResponse): string
+    {
+        $errorCode = $apiResponse['payments']['errors'][0]['errorCode'] ?? null;
+
+        return ($errorCode === 'payment_failed' ? BlikPaymentError::WrongCode : BlikPaymentError::Unclassified)
+            ->customerMessage();
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function payPayload(): array
+    {
+        return array_filter([
+            'method' => $this->blikToken() ? null : ($this->data['method'] ?? config('lunar.tpay.method')),
+            'groupId' => $this->requestedGroupId(),
+            'channelId' => $this->blikToken() ? null : ($this->data['channel_id'] ?? config('lunar.tpay.channel_id')),
+        ]);
+    }
+
+    private function requestedGroupId(): ?int
+    {
+        if ($this->blikToken()) {
+            return self::BLIK_GROUP_ID;
+        }
+
+        $groupId = $this->data['group_id'] ?? config('lunar.tpay.group_id');
+
+        return filled($groupId) ? (int) $groupId : null;
+    }
+
+    private function blikToken(): ?string
+    {
+        $token = $this->data['blik_token'] ?? null;
+
+        if (! is_string($token) || $token === '') {
+            return null;
+        }
+
+        return $token;
+    }
+
+    private function succeeded(int $orderId, ?string $redirectUrl): PaymentAuthorize
+    {
         $response = new PaymentAuthorize(
             success: true,
-            orderId: $order->id,
+            orderId: $orderId,
             paymentType: 'tpay',
-            redirectUrl: $apiResponse['transactionPaymentUrl'],
+            redirectUrl: $redirectUrl,
         );
-
         PaymentAttemptEvent::dispatch($response);
 
         return $response;
+    }
+
+    private function failed(string $message, ?ApiErrorType $errorType = null): PaymentAuthorize
+    {
+        $response = new PaymentAuthorize(
+            success: false,
+            message: $message,
+            errorType: $errorType,
+        );
+        PaymentAttemptEvent::dispatch($response);
+
+        return $response;
+    }
+
+    private function failedAuthorize(TpayApiException|ConnectionException $e): PaymentAuthorize
+    {
+        /** @var Order|null $order */
+        $order = $this->order;
+
+        if ($e instanceof ConnectionException) {
+            Log::warning('Tpay: payment authorization failed', [
+                'order' => $order?->id,
+                'error' => $e->getMessage(),
+                'blik' => $this->blikToken() !== null,
+            ]);
+
+            return $this->failed(trans('lunar-tpay::errors.customer.generic'));
+        }
+
+        Log::warning('Tpay: payment authorization failed', [
+            'order' => $order?->id,
+            'status' => $e->statusCode,
+            'error' => $e->getMessage(),
+            'blik' => $this->blikToken() !== null,
+        ]);
+
+        $message = $this->blikToken() && $this->isBlikTokenError($e)
+            ? BlikPaymentError::WrongCode->customerMessage()
+            : ($e->errorType?->customerMessage() ?? trans('lunar-tpay::errors.customer.generic'));
+
+        return $this->failed($message, $e->errorType);
+    }
+
+    private function isBlikTokenError(TpayApiException $e): bool
+    {
+        foreach ($e->errors['errors'] ?? [] as $error) {
+            $details = is_array($error) ? ($error['fieldName'] ?? '').' '.($error['errorMessage'] ?? '') : '';
+
+            if (str_contains(strtolower($details), 'blik')) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function adminMessage(TpayApiException $e): string

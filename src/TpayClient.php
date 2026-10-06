@@ -37,6 +37,21 @@ class TpayClient implements TpayClientContract
         return $this->post('/transactions', $payload);
     }
 
+    /**
+     * @param  array<string, mixed>  $payload
+     * @return array<string, mixed>
+     */
+    public function payTransaction(string $transactionId, array $payload): array
+    {
+        return $this->post("/transactions/{$transactionId}/pay", $payload);
+    }
+
+    /** @return array<string, mixed> */
+    public function cancelTransaction(string $transactionId): array
+    {
+        return $this->post("/transactions/{$transactionId}/cancel", []);
+    }
+
     /** @return array<string, mixed> */
     public function getTransaction(string $transactionId): array
     {
@@ -110,7 +125,7 @@ class TpayClient implements TpayClientContract
         try {
             return Http::withToken($this->accessToken())
                 ->acceptJson()
-                ->withBody(json_encode($payload, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES), 'application/json')
+                ->withBody(json_encode($payload ?: new \stdClass, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES), 'application/json')
                 ->post($this->baseUrl().$uri)
                 ->throw()
                 ->json() ?? [];

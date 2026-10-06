@@ -32,4 +32,13 @@ return [
         'generic' => 'Payment failed. Please try again or choose a different payment method.',
     ],
 
+    'blik' => [
+        'wrong_code' => 'That BLIK code is invalid or has expired. Generate a new code in your banking app and try again.',
+        'rejected_by_payer' => 'The BLIK payment was declined in your banking app. Generate a new code to try again.',
+        'insufficient_funds' => 'Your bank declined the BLIK payment due to insufficient funds.',
+        'timeout' => 'The BLIK payment was not confirmed in time. Generate a new code and try again.',
+        'limit_exceeded' => 'The BLIK payment exceeds the limit set by your bank.',
+        'generic' => 'The BLIK payment failed. Please try again or choose a different payment method.',
+    ],
+
 ];

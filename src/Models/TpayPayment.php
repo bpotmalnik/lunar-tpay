@@ -2,6 +2,7 @@
 
 namespace Bpotmalnik\LunarTpay\Models;
 
+use Bpotmalnik\LunarTpay\Enums\BlikPaymentError;
 use Bpotmalnik\LunarTpay\Enums\PaymentStatus;
 use Bpotmalnik\LunarTpay\Enums\RefundStatus;
 use Illuminate\Database\Eloquent\Model;
@@ -49,6 +50,29 @@ class TpayPayment extends Model
             PaymentStatus::Paid,
             PaymentStatus::Canceled,
         ]);
+    }
+
+    public function groupId(): ?int
+    {
+        $groupId = $this->transaction?->meta['group_id'] ?? null;
+
+        return $groupId === null ? null : (int) $groupId;
+    }
+
+    /**
+     * @param  array<string, mixed>  $tpayTransaction  Response of GET /transactions/{id}
+     */
+    public function failedBlikAttempt(array $tpayTransaction): ?BlikPaymentError
+    {
+        $attemptIndex = $this->transaction?->meta['blik_attempt'] ?? null;
+
+        if ($attemptIndex === null) {
+            return null;
+        }
+
+        $errorCode = $tpayTransaction['payments']['attempts'][(int) $attemptIndex]['paymentErrorCode'] ?? null;
+
+        return $errorCode === null ? null : BlikPaymentError::fromCode($errorCode);
     }
 
     /** @return BelongsTo<Order, $this> */
